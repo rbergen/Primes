@@ -48,7 +48,23 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v1
 
+      - name: Determine if architecture is arm64
+        id: build-arch
+        if: matrix.solution == 'PrimeAssembly/solution_2'
+        run: echo "::set-output name=arch64::true"  
+
+      - name: Build arm64
+        if: steps.build-arch.outputs.arch64
+        uses: docker/build-push-action@v2
+        with:
+          tags: ${{ steps.solution-name.outputs.normalized }}
+          context: ${{ matrix.solution }}
+          platforms: linux/arm64
+          push: false
+          load: true
+
       - name: Build amd64
+        if: "!steps.build-arch.outputs.arch64"
         uses: docker/build-push-action@v2
         with:
           tags: ${{ steps.solution-name.outputs.normalized }}

@@ -330,7 +330,7 @@ unsetLoop:
     ldr     w3, [x10, x2, lsl #2]       // clrCurWord = sieve.primes[clrWordIndex * 4]
     and     x1, x0, #31                 // clrBitNumber = clrBitIndex & 0b00011111
     ldr     w4, [x9, x1, lsl #2]        // clrBitSelect = bitSelectPtr[clrBitNumber * 4]
-    bic     w3, w3, w7                  // clrCurWord &= ~clrBitSelect
+    bic     w3, w3, w4                  // clrCurWord &= ~clrBitSelect
     str     w3, [x10, x2, lsl #2]    	// sieve.primes[clrWordIndex * 4] = clrCurWord
     add     x0, x0, x8                  // clrBitIndex += factor
     cmp     x0, w11, uxtx               // if clrBitIndex < arraySize...

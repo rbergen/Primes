@@ -318,7 +318,7 @@ runSieve:
     mov     x7, #2                      // fctBitSelect = 0b00000010
 
 sieveLoop:
-    mul     x0, x0, x8                  // clrBitIndex = factor * factor
+    mul     x0, x8, x8                  // clrBitIndex = factor * factor
     lsr     x0, x0, #1                  // clrBitIndex /= 2
 
 // clear multiples of factor

@@ -399,9 +399,10 @@ countPrimes:
     lsr     x4, x4, #1                  // curPrimeWord >>= 1
     mov     w3, #63                     // shiftCount = 63
 
-countLoop:    
-    lsrs    x4, x4, #1                  // curPrimeWord >>= 1
-    cinc    w0, w0, cs                  // if the bit we shifted out was set then primeCount++
+countLoop:  
+    ands    x5, x4, #1                  // if curPrimeWord & 1 != 0...
+    cinc    w0, w0, eq                  // ...primeCount++
+    lsr     x4, x4, #1                  // curPrimeWord >>= 1
     sub     w1, w1, #1                  // bitCount--
     cbz     w1, endCount                // if bitCount == 0 then we're done counting
 

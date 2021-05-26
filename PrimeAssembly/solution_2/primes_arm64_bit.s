@@ -393,14 +393,14 @@ countPrimes:
 
     ldr     w1, [x0, #sieve_arraySize]  // bitCount = sieve.arraySize
     ldr     x2, [x0, #sieve_primes]     // primesPtr = &sieve.primes[0]
-    ldr     x5, [x2], #8                // curPrimeWord = *primesPtr, primesPtr += 8
+    ldr     x4, [x2], #8                // curPrimeWord = *primesPtr, primesPtr += 8
     mov     w0, #1                      // primeCount = 1
     sub     w1, w1, #1                  // bitCount--
     lsr     x4, x4, #1                  // curPrimeWord >>= 1
     mov     w3, #63                     // shiftCount = 63
 
 countLoop:    
-    lsr     x4, x4, #1                  // curPrimeWord >>= 1
+    lsrs    x4, x4, #1                  // curPrimeWord >>= 1
     cinc    w0, w0, cs                  // if the bit we shifted out was set then primeCount++
     sub     w1, w1, #1                  // bitCount--
     cbz     w1, endCount                // if bitCount == 0 then we're done counting

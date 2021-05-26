@@ -77,7 +77,7 @@ main:
 // * w27: sizeSqrt
 // * x28: initBlock
 
-    movz    x28, INIT_PATTERN           // set 2 rightmost WORDs of initBlock...
+    movz    x28, INIT_PATTERN           // set 2 rightmost bytes of initBlock...
     movk    x28, INIT_PATTERN, lsl 16   // ...then the 2 left of that... 
     movk    x28, INIT_PATTERN, lsl 32   // ...then the 2 left of that...
     movk    x28, INIT_PATTERN, lsl 48   // ...then the 2 leftmost
@@ -210,7 +210,7 @@ printResults:
 .balign     4
 
 outputFmt:                              // format string for output
-.asciz      "rbergen_arm64;%d;%d.%03d;1\n"   
+.asciz      "rbergen_arm64_bit;%d;%d.%03d;1\n"   
 
 .balign     4
 
@@ -253,7 +253,6 @@ newSieve:
     lsr     w19, w19, #6                // initBlockCount /= 64
     add     w19, w19, #1                // initBlockCount++
     
-    mov     x0, #0                      // initBlockBytes = 0
     mov     w0, w19                     // initBlockBytes = initBlockCount
     lsl     w0, w0, #3                  // initBlockBytes *= 8
     bl      malloc                      // x0 = &array[0]
@@ -297,75 +296,78 @@ deleteSieve:
 runSieve:
 
 // registers:
-// * x0: bitSelectPtr
-// * x1: primesPtr (&sieve.primes[0])
-// * x2: factor
-// * x3: bitIndex
-// * x4: wordIndex/wordPtr
-// * x5: bitNumber
-// * w6: curPrimeWord
-// * w7: curBitSelect
-// * w8: arraySize
+// * x0: clrBitIndex
+// * x1: clrBitNumber
+// * x2: clrWordIndex
+// * w3: clrCurWord
+// * w4: clrBitSelect
+// * x5: fctWordIndex
+// * x6: fctCurWord
+// * x7: fctBitSelect
+// * x8: factor
+// * x9: bitSelectPtr
+// * x10: primesPtr
+// * w11: arraySize
 // * w27: sizeSqrt (global)
 
-    ldr     x1, [x0, #sieve_primes]     // primesPtr = (int *)&sieve.primes[0]
-    ldr     w8, [x0, #sieve_arraySize]  // arraySize = sieve.arraySize
-    adr     x0, bitSelect               // bitSelectPtr = (int *)&bitSelect   
-    mov     x2, #3                      // factor = 3
+    ldr     x10, [x0, #sieve_primes]    // primesPtr = (int *)&sieve.primes[0]
+    ldr     w11, [x0, #sieve_arraySize] // arraySize = sieve.arraySize
+    adr     x9, bitSelect               // bitSelectPtr = (int *)&bitSelect   
+    mov     x8, #3                      // factor = 3
+    mov     x5, #0                      // fctWordIndex = 0
+    mov     x7, #2                      // fctBitSelect = 0b00000010
 
 sieveLoop:
-    mul     x3, x2, x2                  // bitIndex = factor * factor
-    lsr     x3, x3, #1                  // bitIndex /= 2
+    mul     x0, x0, x8                  // clrBitIndex = factor * factor
+    lsr     x0, x0, #1                  // clrBitIndex /= 2
 
 // clear multiples of factor
 unsetLoop:
-    lsr     x4, x3, #5                  // wordIndex = bitIndex / 32
-    ldr     w6, [x1, x4, lsl #2]        // curPrimeWord = sieve.primes[wordIndex * 4]
-    and     x5, x3, WORD_MASK           // bitNumber = bitIndex & WORD_MASK
-    ldr     w7, [x0, x5, lsl #2]        // curBitSelect = bitSelectPtr[bitNumber * 4]
-    bic     w6, w6, w7                  // curPrimeWord &= ~curBitSelect
-    str     w6, [x1, x4, lsl #2]    	// sieve.primes[wordIndex * 4] = curPrimeWord
-    add     x3, x3, x2                  // bitIndex += factor
-    cmp     x3, w8, uxtx                // if bitIndex < arraySize...
+// This implementation uses bit selector constants between 2^0 and 2^31 to AND NOT out bits that need to be cleared.
+// The reason is that I have not been able to find a bit shift instruction that is register-controlled.
+
+    lsr     x2, x0, #5                  // clrWordIndex = clrBitIndex / 32
+    ldr     w3, [x10, x2, lsl #2]       // clrCurWord = sieve.primes[clrWordIndex * 4]
+    and     x1, x0, #31                 // clrBitNumber = clrBitIndex & 0b00011111
+    ldr     w4, [x9, x1, lsl #2]        // clrBitSelect = bitSelectPtr[clrBitNumber * 4]
+    bic     w3, w3, w7                  // clrCurWord &= ~clrBitSelect
+    str     w3, [x10, x2, lsl #2]    	// sieve.primes[clrWordIndex * 4] = clrCurWord
+    add     x0, x0, x8                  // clrBitIndex += factor
+    cmp     x0, w11, uxtx               // if clrBitIndex < arraySize...
     blo     unsetLoop                   // ...continue marking non-primes
 
-    add     x2, x2, #2                  // factor += 2
-    cmp     x2, w27, uxtx               // if factor > sizeSqrt...
-    bhi     endRun                      // ...end this run
-
-    lsr     x3, x2, #1                  // bitIndex = factor / 2
-    lsr     x4, x3, #5                  // wordIndex = bitIndex / 32
-    lsl     x4, x4, #2                  // wordIndex *= 4
-    add     x4, x1, x4                  // wordPtr = primesPtr + wordIndex
-    ldr     w6, [x4], #4                // curPrimeWord = *wordPtr; wordPtr += 4
-    and     x5, x3, WORD_MASK           // bitNumber = bitIndex & WORD_MASK
-    ldr     w7, [x0, x5, lsl #2]        // curBitSelect = bitSelectPtr[bitNumber * 4]
+// if the factor <= sqrt 129 then we (re)load the first qword of bits, because it was changed by the marking of non-primes 
+    cmp     x8, #11                     // if factor > 11...
+    bhi     factorLoop                  // ...we can start looking for the next factor...
+    ldr     x6, [x10]                   // ...else fctCurWord = sieve.primes[0..7]
 
 // find next factor
 factorLoop:
-    and     w6, w6, w7                  // curPrimeWword &= curBitSelect
-    cbnz    w6, sieveLoop               // if curPrimeWord != 0 then continue run
-
-    add     x2, x2, #2                  // factor += 2
-    cmp     x2, w27, uxtx               // if factor > sizeSqrt...
+    add     x8, x8, #2                  // factor += 2
+    cmp     x8, w27, uxtx               // if factor > sizeSqrt...
     bhi     endRun                      // ...end this run
 
-    lsl     w7, w7, #1                  // curBitSelect <<= 1
-    cbnz    w7, factorLoop              // if curBitSelect != 0 then continue looking
+    lsl     x7, x7, #1                  // fctBitSelect <<= 1
+    cbnz    x7, checkBit                // if fctBitSelect != 0 then check bit
 
-// we just shifted the selector bit out of curBitSelect, so we have to move on the next word
-    ldr     w6, [x4], #4                // curPrimeWord = *wordPtr; wordPtr += 4
-    mov     w7, #1                      // bitSelector = 1
+// we just shifted the select bit out of the register, so we need to move on the next word
+    add     x5, x5, #1                  // fctWordIndex++
+    mov     x7, #1                      // fctBitSelect = 1
+    ldr     x6, [x10, x5, lsl #3]       // fctCurWord = sieve.primes[(8 * fctWordIndex)..(8 * fctWordIndex + 7)]
 
-    b       factorLoop                  // continue looking
+checkBit:
+    and     x2, x6, x7                  // if fctCurWord & fctBitSelect != 0...
+    cbnz    x2, sieveLoop               // ...continue this run
+    b       factorLoop                  // keep looking for next factor
 
 endRun:
-    mov     x0, x1                      // return &sieve.primes[0]
+    mov     x0, x10                     // return &sieve.primes[0]
 
     ret                                 // end of runSieve
 
 .balign     4
 
+// These are the constant bit selector values used by the loop that clears multiples of factors
 bitSelect:
 .word       0x00000001, 0x00000002, 0x00000004, 0x00000008
 .word       0x00000010, 0x00000020, 0x00000040, 0x00000080

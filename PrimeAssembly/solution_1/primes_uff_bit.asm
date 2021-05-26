@@ -96,63 +96,57 @@ initLoop:
 ; run the sieve
 
 ; registers:
-; * eax: index
+; * eax: number
 ; * ebx: factor
-; * rcx: bitNumber/curWord
+; * rcx: wordIndex
 ; * r8d: sizeSqrt
+; * r9: curWord
+; * r10: bitSelect
 ; * r12d: runCount
 
     mov         rbx, 3                              ; factor = 3
+    mov         rcx, 0                              ; wordIndex = 0
+    mov         r10, 2                              ; bitSelect = 0b00000010
 
 sieveLoop:
-    mov         rax, rbx                            ; index = factor...
+    mov         rax, rbx                            ; number = factor...
     mul         ebx                                 ; ... * factor
-    shr         eax, 1                              ; index /= 2
+    shr         eax, 1                              ; number /= 2
 
 ; clear multiples of factor
 unsetLoop:
-; This code uses btr to unset bits directly in memory. It's an expensive instruction to use, but my guess is that the 
+; This code uses btr to clear bits directly in memory. It's an expensive instruction to use, but my guess is that the 
 ; CPU microcode to perform byte address and bit number calculation, memory read, AND NOT and memory write is faster 
-; than an implementation of the same that I could write myself. When finding the next factor that is different,
-; because then we're effectively checking sequential bits.  
-    btr         dword [bPrimes], eax                ; bPrimes[0][index] = false
-    add         eax, ebx                            ; index += factor
-    cmp         eax, BIT_SIZE                       ; if index < bit count...
+; than an implementation of the same that I could write myself. That's different When we look for the next factor,
+; because then we're effectively sequentially checking bits.  
+    btr         dword [bPrimes], eax                ; bPrimes[0][number] = false
+    add         eax, ebx                            ; number += factor
+    cmp         eax, BIT_SIZE                       ; if number < bit count...
     jb          unsetLoop                           ; ...continue marking non-primes
 
+; if the factor <= sqrt 129 then we (re)load the first qword of bits, because it was changed by the marking of non-primes 
+    cmp         ebx, 11                             ; if factor > 11...
+    ja          factorLoop                          ; ...we can start looking for the next factor...
+    mov         r9, qword [bPrimes]                 ; ...else curWord = bPrimes[0..7]
+
 ; find next factor
+factorLoop:
     add         ebx, 2                              ; factor += 2
     cmp         ebx, r8d                            ; if factor > sizeSqrt...
     ja          endRun                              ; ...end this run
 
-; this is where we calculate word index and bit number, once 
-    mov         eax, ebx                            ; index = factor
-    shr         eax, 1                              ; index /= 2
-    mov         rcx, rax                            ; bitNumber = index
-    and         rcx, 63                             ; bitNumber &= 0b00111111
-    mov         rdx, 1                              ; bitSelect = 1
-    shl         rdx, cl                             ; bitSelect <<= bitNumber
-    shr         eax, 6                              ; index /= 64
-
-factorWordLoop:    
-    mov         rcx, qword [bPrimes+8*eax]          ; curWord = bPrimes[(8 * index)..(8 * index + 7)]
-
-; now we cycle through the bits until we find one that is set
-factorBitLoop:
-    test        rcx, rdx                            ; if curWord & bitSelect != 0...
-    jnz         sieveLoop                           ; ...continue this run
-
-    add         ebx, 2                              ; factor += 2
-    cmp         ebx, r8d                            ; if factor > sizeSqrt...
-    ja          endRun                              ; ...end this run
-
-    shl         rdx, 1                              ; bitSelect <<= 1
-    jnz         factorBitLoop                       ; if bitSelect != 0 then continue looking
+    shl         r10, 1                              ; bitSelect <<= 1
+    jnz         checkBit                            ; if bitSelect != 0 then check bit
 
 ; we just shifted the select bit out of the register, so we need to move on the next word
-    inc         eax                                 ; index++
-    mov         rdx, 1                              ; bitSelect = 1
-    jmp         factorWordLoop                      ; continue looking
+    inc         ecx                                 ; wordIndex++
+    mov         r10, 1                              ; bitSelect = 1
+    mov         r9, qword [bPrimes+8*ecx]           ; curWord = bPrimes[(8 * wordIndex)..(8 * wordIndex + 7)]
+
+checkBit:
+    test        r9, r10                             ; if curWord & bitSelect != 0...
+    jnz         sieveLoop                           ; ...continue this run
+    jmp         factorLoop                          ; keep looking for next factor
 
 endRun:
 

@@ -17,12 +17,13 @@ section .data
 
 SIEVE_SIZE      equ     1000000                     ; sieve size
 RUNTIME         equ     5                           ; target run time in seconds
-ARRAY_SIZE      equ     (SIEVE_SIZE+1)/16           ; prime candidate array size
-BLOCK_COUNT     equ     (ARRAY_SIZE/8)+1            ; 8-byte block size
+BIT_SIZE        equ     (SIEVE_SIZE+1)/2            ; prime candidate bit count
+BLOCK_COUNT     equ     (BIT_SIZE/64)+1             ; 8-byte block size
+BYTE_SIZE       equ     BLOCK_COUNT*8               ; bytes needed
 TRUE            equ     1                           ; true constant
 FALSE           equ     0                           ; false constant
 SEMICOLON       equ     59                          ; semicolon ascii
-INIT_BLOCK      equ     ffffffffffffffffh           ; init block for prime array            
+INIT_BLOCK      equ     0ffffffffffffffffh          ; init block for prime array            
 
 CLOCK_GETTIME   equ     228                         ; syscall number for clock_gettime
 CLOCK_MONOTONIC equ     1                           ; CLOCK_MONOTONIC
@@ -54,7 +55,7 @@ section .bss
 
 startTime:      resb    time_size                   ; start time of sieve run
 duration:       resb    time_size                   ; duration
-bPrimes:        resb    ARRAY_SIZE                  ; array with prime candidates
+bPrimes:        resb    BYTE_SIZE                   ; array with prime candidates
 
 section .text
 
@@ -95,44 +96,63 @@ initLoop:
 ; run the sieve
 
 ; registers:
-; * eax: bitIndex
+; * eax: index
 ; * ebx: factor
-; * ecx: wordIndex
+; * rcx: bitNumber/curWord
 ; * r8d: sizeSqrt
 ; * r12d: runCount
 
     mov         rbx, 3                              ; factor = 3
 
 sieveLoop:
-    mov         rax, rbx                            ; bitIndex = factor...
+    mov         rax, rbx                            ; index = factor...
     mul         ebx                                 ; ... * factor
-    shr         eax, 1                              ; bitIndex /= 2
+    shr         eax, 1                              ; index /= 2
 
 ; clear multiples of factor
 unsetLoop:
-    mov         rcx, rax                            ; wordIndex = bitIndex
-    shr         ecx, 6                              ; wordIndex /= 64
-    btr         qword [bPrimes+ecx*8], eax          ; bPrimes[wordIndex * 8][bitIndex % 64] = false
-    add         eax, ebx                            ; arrayIndex += factor
-    cmp         eax, ARRAY_SIZE                     ; if arrayIndex < array size...
+; This code uses btr to unset bits directly in memory. It's an expensive instruction to use, but my guess is that the 
+; CPU microcode to perform byte address and bit number calculation, memory read, AND NOT and memory write is faster 
+; than an implementation of the same that I could write myself. When finding the next factor that is different,
+; because then we're effectively checking sequential bits.  
+    btr         dword [bPrimes], eax                ; bPrimes[0][index] = false
+    add         eax, ebx                            ; index += factor
+    cmp         eax, BIT_SIZE                       ; if index < bit count...
     jb          unsetLoop                           ; ...continue marking non-primes
 
-
-    mov         eax, ebx                            ; arrayIndex = factor
-    shr         eax, 1                              ; arrayIndex /= 2
-
 ; find next factor
-factorLoop:
     add         ebx, 2                              ; factor += 2
     cmp         ebx, r8d                            ; if factor > sizeSqrt...
     ja          endRun                              ; ...end this run
-    
-    inc         eax                                 ; bitIndex++
-    mov         ecx, eax                            ; wordIndex = bitIndex
-    shr         ecx, 6                              ; wordIndex /= 64
-    bt          qword [bPrimes+ecx*8], eax          ; if bPrimes[wordIndex * 8][bitIndex % 64]...
-    je          sieveLoop                           ; ...continue run
-    jmp         factorLoop                          ; continue looking
+
+; this is where we calculate word index and bit number, once 
+    mov         eax, ebx                            ; index = factor
+    shr         eax, 1                              ; index /= 2
+    mov         rcx, rax                            ; bitNumber = index
+    and         rcx, 63                             ; bitNumber &= 0b00111111
+    mov         rdx, 1                              ; bitSelect = 1
+    shl         rdx, cl                             ; bitSelect <<= bitNumber
+    shr         eax, 6                              ; index /= 64
+
+factorWordLoop:    
+    mov         rcx, qword [bPrimes+8*eax]          ; curWord = bPrimes[(8 * index)..(8 * index + 7)]
+
+; now we cycle through the bits until we find one that is set
+factorBitLoop:
+    test        rcx, rdx                            ; if curWord & bitSelect != 0...
+    jnz         sieveLoop                           ; ...continue this run
+
+    add         ebx, 2                              ; factor += 2
+    cmp         ebx, r8d                            ; if factor > sizeSqrt...
+    ja          endRun                              ; ...end this run
+
+    shl         rdx, 1                              ; bitSelect <<= 1
+    jnz         factorBitLoop                       ; if bitSelect != 0 then continue looking
+
+; we just shifted the select bit out of the register, so we need to move on the next word
+    inc         eax                                 ; index++
+    mov         rdx, 1                              ; bitSelect = 1
+    jmp         factorWordLoop                      ; continue looking
 
 endRun:
 
@@ -173,25 +193,22 @@ checkTime:
 ; registers:
 ; * ebx: primeCount
 ; * ecx: bitIndex
-; * edx: wordIndex
 ; * r12d: runCount
 
-; Note: this code could definitely be made faster by loading (q)words and shifting bits.
-; As the counting of the primes is not included in the timed part of the implementation, I just didn't bother
+; This code could definitely be made faster by loading (q)words and shifting bits. As the counting of the 
+; primes is not included in the timed part of the implementation and executed just once, I just didn't bother.
 
     mov         ebx, 1                              ; primeCount = 1 
-    mov         rcx, 1                              ; bitIndex = 1
+    mov         ecx, 1                              ; bitIndex = 1
     
 countLoop:    
-    mov         rdx, rcx                            ; wordIndex = bitIndex
-    shr         edx, 6                              ; wordIndex /= 64
-    bt          qword [bPrimes+edx*8], ecx          ; if !bPrimes[wordIndex * 8][bitIndex % 64]...
+    bt          dword [bPrimes], ecx                ; if !bPrimes[0][bitIndex]...
     jnc         nextItem                            ; ...move on to next array member
     inc         ebx                                 ; ...else primeCount++
 
 nextItem:
     inc         ecx                                 ; bitIndex++
-    cmp         ecx, ARRAY_SIZE                     ; if bitIndex <= array size...
+    cmp         ecx, BIT_SIZE                       ; if bitIndex <= bit count...
     jb          countLoop                           ; ...continue counting
 
 ; we're done counting, let's check our result

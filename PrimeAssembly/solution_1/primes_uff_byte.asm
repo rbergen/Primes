@@ -19,6 +19,7 @@ SIEVE_SIZE      equ     1000000                     ; sieve size
 RUNTIME         equ     5                           ; target run time in seconds
 ARRAY_SIZE      equ     (SIEVE_SIZE+1)/2            ; prime candidate array size
 BLOCK_COUNT     equ     (ARRAY_SIZE/8)+1            ; 8-byte block size
+BYTE_SIZE       equ     BLOCK_COUNT*8               ; bytes needed
 TRUE            equ     1                           ; true constant
 FALSE           equ     0                           ; false constant
 SEMICOLON       equ     59                          ; semicolon ascii
@@ -54,7 +55,7 @@ section .bss
 
 startTime:      resb    time_size                   ; start time of sieve run
 duration:       resb    time_size                   ; duration
-bPrimes:        resb    ARRAY_SIZE                  ; array with prime candidates
+bPrimes:        resb    BYTE_SIZE                   ; array with prime candidates
 
 section .text
 

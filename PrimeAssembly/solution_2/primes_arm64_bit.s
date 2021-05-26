@@ -401,7 +401,7 @@ countPrimes:
 
 countLoop:  
     ands    x5, x4, #1                  // if curPrimeWord & 1 != 0...
-    cinc    w0, w0, eq                  // ...primeCount++
+    cinc    w0, w0, ne                  // ...primeCount++
     lsr     x4, x4, #1                  // curPrimeWord >>= 1
     sub     w1, w1, #1                  // bitCount--
     cbz     w1, endCount                // if bitCount == 0 then we're done counting

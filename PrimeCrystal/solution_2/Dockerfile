@@ -1,6 +1,6 @@
-FROM debian:11
+FROM debian:13
 
-ENV CRYSTAL_VER="1.14"
+ENV CRYSTAL_VER="1.21"
 
 WORKDIR /opt
 

@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Pin the toolchain. Mojo makes breaking language changes between releases, and
+# an unpinned install has broken this build repeatedly. 26.4 removed `fn`, so the
+# source below builds on 26.2 and 26.3 only.
 RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install modular \
+    && /opt/venv/bin/pip install modular==26.3.0 \
     --extra-index-url https://modular.gateway.scarf.sh/simple/
 
 # Ensure venv is on PATH
